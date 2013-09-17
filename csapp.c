@@ -696,12 +696,12 @@ void Rio_writen(int fd, void *usrbuf, size_t n)
     if (rio_writen(fd, usrbuf, n) != n) {
 	if (errno == EPIPE) {
 	    printf("Rio_writen: We ran into a broken pipe\n");
-	    pthread_exit(NULL);
+	    //pthread_exit(NULL);
 	    return;
     	}
 	if (errno = ECONNRESET) {
 	    printf("Rio_writen: We ran into a connection reset problem\n");
-	    pthread_exit(NULL);
+	    //pthread_exit(NULL);
 	    return;
 	}
 	unix_error("Rio_writen error");

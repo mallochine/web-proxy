@@ -25,6 +25,9 @@ cache tiny_cache;
 int readcnt;    /* Initially 0 */
 sem_t mutex, w; /* Both initially 1 */
 
+// global variables for POST request
+int contentlen;
+
 int main(int argc, char **argv)
 {
     int listenfd, connfd, port, clientlen;
@@ -37,7 +40,7 @@ int main(int argc, char **argv)
     Sem_init(&w, 0, 1);
 
     // handle SIGPIPE errors
-    Signal(SIGPIPE, SIG_IGN);
+    signal(SIGPIPE, SIG_IGN);
 
     // init the cache
     tiny_cache = new_cache();
@@ -54,10 +57,10 @@ int main(int argc, char **argv)
         clientlen = sizeof(clientaddr);
         connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
         //*
-        Pthread_create(&tid, NULL, doit, (void *) connfd);
+        //Pthread_create(&tid, NULL, doit, (void *) connfd);
         // */
 
-        //doit((void *) connfd);
+        doit((void *) connfd);
     }
 }
 /* $end tinymain */
@@ -121,6 +124,14 @@ void read_header(rio_t *rio, char *buf, int n) {
 
     if (!strcmp(key, "Proxy-Connection")) {
         replace_value(buf, "close");
+        return;
+    }
+
+    if (!strcmp(key, "Content-Length")) {
+        char *value = key;
+        get_value(buf, value);
+        contentlen = atoi(value);
+        printf("INFO: The content length is %d\n", contentlen);
         return;
     }
 
@@ -198,7 +209,7 @@ void read_header(rio_t *rio, char *buf, int n) {
 /* $begin doit */
 void *doit(void *fd)
 {
-    Pthread_detach(Pthread_self());
+//    Pthread_detach(Pthread_self());
 
     int client_fd = (int) fd;
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
@@ -218,11 +229,11 @@ void *doit(void *fd)
     sscanf(buf, "%s %s %s", method, uri, version);
 
     //if (strcasecmp(method, "GET") && strcasecmp(method, "POST")) {
-    if (strcasecmp(method, "GET")) {
-        clienterror(client_fd, method, "501", "Not Implemented",
-                "Tiny does not implement this method");
-        return NULL;
-    }
+//    if (strcasecmp(method, "GET")) {
+//        clienterror(client_fd, method, "501", "Not Implemented",
+//                "Tiny does not implement this method");
+//        return NULL;
+//    }
 
     // read the second header
     rio_readlineb(&client_rio, buf2, MAXLINE);
@@ -241,6 +252,20 @@ void *doit(void *fd)
 
     // attach a default header to the request
     strcat(buf, "Connection: close\r\n");
+
+// DEBUG: very useful
+//////////////////////////////////////////////////////////////
+////        for (i = 0; i < contentlen; i++) {
+//    puts("INFO: the internal buffer of client_rio...");
+//    printf("%s", client_rio.rio_bufptr);
+//    fflush(stdout);
+//        while (1) {
+//            int numread = recv(client_fd, buf, 1, 0);
+////            Rio_writen(serverfd, buf, numread);
+//            putchar(buf[0]);
+//            fflush(stdout);
+//        }
+//  /DEBUG END
 
     // read the rest of the headers from the client
     while (strcmp(buf2, "\r\n")) {
@@ -312,6 +337,29 @@ void *doit(void *fd)
     // Forward the headers to the server
     Rio_writen(serverfd, buf, strlen(buf));
 
+    puts("INFO: these headers were forwarded");
+    printf("%s", buf);
+
+    if (!strcasecmp(method, "POST")) {
+        puts("INFO: Forwarding POST content...");
+
+        puts("INFO: the internal buffer of client_rio...");
+        printf("%s", client_rio.rio_bufptr);
+        fflush(stdout);
+
+        Rio_writen(serverfd, client_rio.rio_bufptr, strlen(client_rio.rio_bufptr));
+
+        //// The following code will work WITHOUT csapp.c....
+        //// Because csapp.c buffers it. Really interesting.
+        //int i;
+        //for (i = 0; i < contentlen; i++) {
+        //    int numread = recv(client_fd, buf, 1, 0);
+        //    Rio_writen(serverfd, buf, numread);
+        //    putchar(buf[0]);
+        //    fflush(stdout);
+        //}
+    }
+
     // zero the buffer
     memset(buf, 0, MAXLINE);
 
@@ -331,6 +379,9 @@ void *doit(void *fd)
 
         // send off the buffer with each iteration of the while loop
         Rio_writen(client_fd, buf, numread);
+
+        printf("INFO: We are sending this from the website to the client\n");
+        printf("%s", buf);
 
         // Check whether reading in new data will fit in buffer
         // for web object
